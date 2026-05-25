@@ -73,6 +73,11 @@ class TrainingLoopConfig:
     eval_simulations: int = 80
     promote_threshold: float = 0.55
 
+    # Periodic dated snapshots (in addition to latest.pt and best.pt).
+    # Each snapshot is saved as iter_NNNN.pt so opening-discovery and other
+    # over-time analyses can iterate a directory. 0 disables.
+    snapshot_every: int = 10
+
     # I/O.
     output_dir: str = "runs/connect4"
     device: Optional[str] = None  # auto-detect
@@ -261,6 +266,8 @@ def train_loop(
         )
 
         trainer.save_checkpoint(out / "latest.pt")
+        if config.snapshot_every > 0 and iteration % config.snapshot_every == 0:
+            trainer.save_checkpoint(out / f"iter_{iteration:04d}.pt")
 
     elapsed_min = (time.time() - start_time) / 60.0
     print(f"\nDone. {config.iterations} iterations in {elapsed_min:.1f} min.")

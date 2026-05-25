@@ -58,6 +58,12 @@ def main() -> None:
         default=None,
         help="Override auto-detection: cpu, mps, or cuda",
     )
+    parser.add_argument(
+        "--snapshot-every",
+        type=int,
+        default=defaults.snapshot_every,
+        help="Save a dated checkpoint (iter_NNNN.pt) every N iterations; 0 disables",
+    )
     parser.add_argument("--seed", type=int, default=defaults.seed)
     parser.add_argument(
         "--resume",
@@ -80,6 +86,7 @@ def main() -> None:
         learning_rate=args.learning_rate,
         buffer_capacity=args.buffer_capacity,
         min_buffer_size=args.min_buffer_size,
+        snapshot_every=args.snapshot_every,
         output_dir=args.output_dir,
         device=args.device,
         seed=args.seed,
