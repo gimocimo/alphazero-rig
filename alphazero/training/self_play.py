@@ -9,12 +9,16 @@ gets populated by search visit-counts instead of left as None.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Generic, Optional, TypeVar
+from typing import TYPE_CHECKING, Generic, Optional, TypeVar
 
 import numpy as np
 
 from ..agents.base import Agent
 from ..games.base import Game
+from .replay_buffer import TrainingExample
+
+if TYPE_CHECKING:
+    from ..mcts.puct import PUCTAgent
 
 S = TypeVar("S")
 
@@ -96,3 +100,56 @@ def play_game(
 
     record.outcome = game.winner(state) if game.is_terminal(state) else 0
     return record
+
+
+def play_self_play_game(
+    game: Game[S],
+    agent: "PUCTAgent[S]",
+    temperature_threshold: int = 10,
+    high_temperature: float = 1.0,
+    low_temperature: float = 0.0,
+) -> list[TrainingExample]:
+    """Play one self-play game (PUCT vs itself) and return training examples.
+
+    Each move uses a temperature schedule:
+        ply < temperature_threshold → high_temperature (default 1.0, exploratory)
+        otherwise                  → low_temperature  (default 0.0, sharp)
+
+    The policy target at each position is the MCTS-amplified visit
+    distribution, *not* the action actually taken. The value target is the
+    eventual game outcome from that position's to-move perspective.
+    """
+    state = game.initial_state()
+    trajectory: list[tuple[np.ndarray, np.ndarray, int]] = []  # (encoded, policy, to_play)
+    ply = 0
+
+    while not game.is_terminal(state):
+        temperature = high_temperature if ply < temperature_threshold else low_temperature
+        action, policy_target = agent.select_action_with_visits(
+            game, state, temperature=temperature
+        )
+
+        legal = game.legal_actions(state)
+        if not legal[action]:
+            raise RuntimeError(
+                f"PUCTAgent returned illegal action {action} "
+                f"(legal mask: {legal.tolist()})"
+            )
+
+        trajectory.append(
+            (game.encode(state), policy_target, game.current_player(state))
+        )
+        state = game.step(state, action)
+        ply += 1
+
+    outcome = game.winner(state) if game.is_terminal(state) else 0
+    examples: list[TrainingExample] = []
+    for encoded, policy, to_play in trajectory:
+        examples.append(
+            TrainingExample(
+                encoded_state=encoded.astype(np.float32),
+                policy_target=policy.astype(np.float32),
+                value_target=float(outcome * to_play),
+            )
+        )
+    return examples

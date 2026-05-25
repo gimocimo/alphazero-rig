@@ -71,29 +71,100 @@ class PUCTAgent(Generic[S]):
         simulations: int = 100,
         c_puct: float = 1.5,
         device: torch.device | str = "cpu",
+        dirichlet_alpha: float = 0.5,
+        dirichlet_epsilon: float = 0.0,
         seed: int | None = None,
     ) -> None:
+        """PUCT search.
+
+        dirichlet_alpha, dirichlet_epsilon:
+            Optional Dirichlet noise mixed into the root priors before search:
+                P_root(a) ← (1 - ε) · P(a) + ε · Dir(α)
+            Disabled by default (ε = 0). Enable during *self-play* (typically
+            ε ≈ 0.25) to ensure the search occasionally explores moves the
+            current net would dismiss — essential for discovering improvements.
+            Disable during *evaluation*: noise during a tournament would just
+            add variance to the strength measurement.
+        """
         if simulations < 1:
             raise ValueError("simulations must be >= 1")
         self.net = net
         self.simulations = simulations
         self.c_puct = c_puct
         self.device = device
+        self.dirichlet_alpha = dirichlet_alpha
+        self.dirichlet_epsilon = dirichlet_epsilon
         self.rng = np.random.default_rng(seed)
 
     def select_action(self, game: Game[S], state: S) -> int:
+        """Convenience: argmax-visits action only. For training, use
+        `select_action_with_visits` to also get the policy target."""
+        action, _ = self.select_action_with_visits(game, state, temperature=0.0)
+        return action
+
+    def select_action_with_visits(
+        self,
+        game: Game[S],
+        state: S,
+        temperature: float = 0.0,
+    ) -> tuple[int, np.ndarray]:
+        """Run search, return (chosen action, normalised root-visit distribution).
+
+        The visit distribution is the policy training target — search amplifies
+        the network's policy, and that amplified signal is what we distill.
+
+        `temperature` controls action selection only (not the returned policy):
+            T = 0   → argmax(visits). Deterministic. Use at evaluation time.
+            T > 0   → sample from visits^(1/T). Use during self-play; T=1 in
+                      the opening encourages diverse data; T→0 in the endgame
+                      plays decisively.
+        """
         if game.is_terminal(state):
-            raise RuntimeError("PUCTAgent.select_action called on a terminal state")
+            raise RuntimeError(
+                "PUCTAgent.select_action_with_visits called on a terminal state"
+            )
 
         root = PUCTNode(state=state, to_play=game.current_player(state))
-        # Expand root immediately so the first selection has priors to work with.
         self._expand(game, root)
+        self._add_root_dirichlet_noise(root)
 
         for _ in range(self.simulations):
             self._simulate(game, root)
 
-        # Most-visited child — robust to noisy Q at low N.
-        return max(root.children, key=lambda a: root.children[a].N)
+        visits = np.zeros(game.action_size, dtype=np.float32)
+        for action, child in root.children.items():
+            visits[action] = child.N
+
+        total = visits.sum()
+        if total <= 0:
+            # Can only happen if simulations=0 — guarded by __init__ but be safe.
+            legal = game.legal_actions(state)
+            visits = legal.astype(np.float32)
+            total = visits.sum()
+
+        policy_target = visits / total
+
+        if temperature <= 0:
+            chosen = int(np.argmax(visits))
+        else:
+            # visits^(1/T) — at T=1 this is just the visit distribution.
+            sharpened = visits ** (1.0 / temperature)
+            probs = sharpened / sharpened.sum()
+            chosen = int(self.rng.choice(visits.size, p=probs))
+
+        return chosen, policy_target
+
+    def _add_root_dirichlet_noise(self, root: PUCTNode[S]) -> None:
+        if self.dirichlet_epsilon <= 0:
+            return
+        if not root.children:
+            return
+        actions = list(root.children.keys())
+        noise = self.rng.dirichlet([self.dirichlet_alpha] * len(actions))
+        eps = self.dirichlet_epsilon
+        for i, action in enumerate(actions):
+            child = root.children[action]
+            child.prior = (1.0 - eps) * child.prior + eps * float(noise[i])
 
     def _simulate(self, game: Game[S], root: PUCTNode[S]) -> None:
         # 1. Selection: descend until we hit an unexpanded node or a terminal.
