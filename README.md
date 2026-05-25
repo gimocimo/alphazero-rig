@@ -99,3 +99,38 @@ Resume an interrupted run:
 ```bash
 uv run python -m alphazero.train --resume runs/smoke/latest.pt
 ```
+
+## Visualizing a run
+
+Refresh plots from a `metrics.csv` (works while training is still running):
+
+```bash
+uv run python -m alphazero.plot runs/connect4-v1
+# writes loss.png and winrate.png next to metrics.csv
+```
+
+Inspect what the agent is "thinking" at a specific position:
+
+```python
+from alphazero.games.connect4 import Connect4
+from alphazero.nets.pvnet import PVNet, predict
+from alphazero.mcts.puct import PUCTAgent
+from alphazero.eval.inspect import render_tree, principal_variation, render_policy_on_board
+
+# Load a trained checkpoint (or use a random net for sanity checks):
+# from alphazero.training.trainer import Trainer
+# trainer = Trainer.from_checkpoint("runs/connect4-v1/best.pt")
+# net = trainer.net
+
+net = PVNet()
+game = Connect4()
+state = game.initial_state()
+
+agent = PUCTAgent(net, simulations=200)
+root = agent.build_root(game, state)
+print(render_tree(root, top_k=5))            # top moves with N / Q / P
+print("PV:", principal_variation(root))       # most-visited line of play
+
+probs, value = predict(net, game, state)
+print(render_policy_on_board(game, state, probs, value=value))
+```

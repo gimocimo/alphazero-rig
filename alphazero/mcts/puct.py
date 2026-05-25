@@ -154,6 +154,25 @@ class PUCTAgent(Generic[S]):
 
         return chosen, policy_target
 
+    def build_root(
+        self, game: Game[S], state: S, add_dirichlet_noise: bool = False
+    ) -> PUCTNode[S]:
+        """Run search and return the root node (for inspection / viz).
+
+        Distinct from `select_action_with_visits` because it exposes the
+        full tree — caller can render it, walk the principal variation,
+        compute custom statistics, etc.
+        """
+        if game.is_terminal(state):
+            raise RuntimeError("build_root called on a terminal state")
+        root = PUCTNode(state=state, to_play=game.current_player(state))
+        self._expand(game, root)
+        if add_dirichlet_noise:
+            self._add_root_dirichlet_noise(root)
+        for _ in range(self.simulations):
+            self._simulate(game, root)
+        return root
+
     def _add_root_dirichlet_noise(self, root: PUCTNode[S]) -> None:
         if self.dirichlet_epsilon <= 0:
             return
