@@ -24,6 +24,7 @@ packages = ["alphazero"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["slow: marks tests that exercise the full training loop (run with -m slow)"]
 
 [tool.ruff]
 line-length = 100

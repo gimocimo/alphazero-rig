@@ -12,16 +12,17 @@ Inspired by Eric Jang's argument (Dwarkesh interview) that the way to internalis
 
 ## Roadmap
 
-### Phase 1 — Foundation (current)
+### Phase 1 — Foundation (complete)
 - [x] Project scaffolding
-- [ ] `Game` interface + Connect4
-- [ ] Random-vs-random self-play harness
-- [ ] Pure MCTS (no neural net) — should crush random
-- [ ] Tiny policy/value network (PyTorch)
-- [ ] PUCT search using the network's priors
-- [ ] Self-play data generation → replay buffer → training step
-- [ ] Closed-loop training: net trains on its own MCTS rollouts
-- [ ] Evaluation: Elo vs prior checkpoints, head-to-head vs baselines
+- [x] `Game` interface + Connect4
+- [x] Random-vs-random self-play harness
+- [x] Pure MCTS (no neural net) — beats random 9/10 with 100 sims
+- [x] PVNet — small ResNet policy/value network (~60k params)
+- [x] PUCT search using the network's priors
+- [x] Self-play data generation → replay buffer
+- [x] Trainer with MPS auto-detection + checkpointing
+- [x] Evaluation arena (alternating sides, draws-as-half winrate)
+- [x] Closed-loop training driver (`python -m alphazero.train`)
 
 ### Phase 2 — Scaling up
 - [ ] Othello (8×8) — same rig, new game
@@ -42,13 +43,15 @@ The phase 3 choice depends on what surprises us in phases 1–2.
 
 ```
 alphazero/
-  games/      # Game environments (Game ABC + concrete games)
-  mcts/       # Monte Carlo Tree Search variants
-  nets/       # Policy/value networks
-  training/   # Self-play, replay buffer, trainer
-  eval/       # Elo, arenas, head-to-head
-  agents/     # Pluggable agents (Random, MCTS, PUCT+net)
-tests/        # pytest suite
+  agents/        # Pluggable agents (Random, MCTS, PUCT+net)
+  games/         # Game environments (Game ABC + Connect4)
+  mcts/          # MCTS variants — pure_mcts, puct (network-guided)
+  nets/          # PVNet — policy + value network
+  training/      # ReplayBuffer, self-play, Trainer, train loop
+  eval/          # Arena (head-to-head winrate)
+  train.py       # CLI entry: `python -m alphazero.train`
+tests/           # pytest suite
+runs/            # Training outputs (gitignored)
 ```
 
 ## Development
@@ -56,4 +59,43 @@ tests/        # pytest suite
 ```bash
 uv sync --extra dev
 uv run pytest
+```
+
+## Training
+
+Run the full AlphaZero loop:
+
+```bash
+uv run python -m alphazero.train
+```
+
+Defaults are tuned for Connect4 on a laptop (100 iterations × 40 self-play
+games × 80 MCTS sims/move). On Apple Silicon the device is auto-detected
+as MPS. See `--help` for tunable hyperparameters.
+
+Quick smoke run (a few minutes):
+
+```bash
+uv run python -m alphazero.train \
+    --iterations 5 \
+    --games-per-iteration 10 \
+    --simulations 40 \
+    --train-steps-per-iteration 50 \
+    --batch-size 32 \
+    --min-buffer-size 100 \
+    --eval-every 2 \
+    --eval-games 8 \
+    --output-dir runs/smoke
+```
+
+Each run writes:
+- `metrics.csv` — one row per iteration: losses, eval winrate, timing.
+- `latest.pt` — checkpoint after the most recent iteration. Use to resume.
+- `best.pt` — last promoted net (a candidate must beat the current best
+  by ≥55% winrate to promote).
+
+Resume an interrupted run:
+
+```bash
+uv run python -m alphazero.train --resume runs/smoke/latest.pt
 ```
