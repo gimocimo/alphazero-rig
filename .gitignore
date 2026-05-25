@@ -10,8 +10,7 @@ __pycache__/
 .venv/
 .env
 
-# uv
-uv.lock
+# uv: commit uv.lock for reproducible deps
 
 # Editor / OS
 .DS_Store

@@ -41,12 +41,13 @@ The phase 3 choice depends on what surprises us in phases 1–2.
 ## Layout
 
 ```
-src/alphazero/
+alphazero/
   games/      # Game environments (Game ABC + concrete games)
   mcts/       # Monte Carlo Tree Search variants
   nets/       # Policy/value networks
   training/   # Self-play, replay buffer, trainer
   eval/       # Elo, arenas, head-to-head
+  agents/     # Pluggable agents (Random, MCTS, PUCT+net)
 tests/        # pytest suite
 ```
 
