@@ -120,7 +120,7 @@ def predict(
     net: PVNet,
     game: Game[S],
     state: S,
-    device: torch.device | str = "cpu",
+    device: torch.device | str | None = None,
 ) -> tuple[np.ndarray, float]:
     """Single-state inference with illegal-move masking.
 
@@ -131,8 +131,15 @@ def predict(
             player's perspective.
 
     The mask-then-softmax pattern is what PUCT will consume as the prior.
+
+    If `device` is None we route the input tensor to wherever the net's
+    parameters live — avoids the "weights on MPS, inputs on CPU" mismatch
+    that bites callers who didn't realise the net had been moved during
+    training.
     """
     net.eval()
+    if device is None:
+        device = next(net.parameters()).device
     x = torch.from_numpy(game.encode(state)).unsqueeze(0).to(device)
     logits, value = net(x)
     logits_np = logits.squeeze(0).cpu().numpy()
